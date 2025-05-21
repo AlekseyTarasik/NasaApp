@@ -1,0 +1,246 @@
+﻿@{
+    ViewData["Title"] = "Метеориты";
+}
+
+<div id="app" class="container mt-4">
+    <h1 class="mb-4">Метеориты</h1>
+
+    <!-- Фильтры -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Фильтры</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <label class="form-label">Год с:</label>
+                    <select v-model="filters.startYear" class="form-select">
+                        <option value="">Все года</option>
+                        <option v-for="year in availableYears" :value="year">{{ year }}</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Год по:</label>
+                    <select v-model="filters.endYear" class="form-select">
+                        <option value="">Все года</option>
+                        <option v-for="year in availableYears" :value="year">{{ year }}</option>
+                    </select>
+                    <div v-if="yearError" class="text-danger mt-1">{{ yearError }}</div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Класс метеорита:</label>
+                    <select v-model="filters.recclass" class="form-select">
+                        <option value="">Все классы</option>
+                        <option v-for="recclass in availableRecclasses" :value="recclass">{{ recclass }}</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Название содержит:</label>
+                    <input v-model="filters.nameContains" type="text" class="form-control" placeholder="Введите часть названия">
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-12">
+                    <button @@click="applyFilters" class="btn btn-primary">Применить фильтры</button>
+                    <button @@click="resetFilters" class="btn btn-outline-secondary ms-2">Сбросить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Таблица с данными -->
+    <div class="card">
+        <div class="card-header">
+            <h5>Результаты</h5>
+        </div>
+        <div class="card-body">
+            <div v-if="isLoading" class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Загрузка...</span>
+                </div>
+            </div>
+            <div v-else class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th @@click="sortBy('year')" style="cursor: pointer;">
+                                Год
+                                <span v-if="sort.column === 'year'">
+                                    <i :class="sort.order === 'asc' ? 'bi bi-arrow-up' : 'bi bi-arrow-down'"></i>
+                                </span>
+                            </th>
+                            <th @@click="sortBy('count')" style="cursor: pointer;">
+                                Количество метеоритов
+                                <span v-if="sort.column === 'count'">
+                                    <i :class="sort.order === 'asc' ? 'bi bi-arrow-up' : 'bi bi-arrow-down'"></i>
+                                </span>
+                            </th>
+                            <th @@click="sortBy('totalMass')" style="cursor: pointer;">
+                                Суммарная масса
+                                <span v-if="sort.column === 'totalMass'">
+                                    <i :class="sort.order === 'asc' ? 'bi bi-arrow-up' : 'bi bi-arrow-down'"></i>
+                                </span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="group in groupedData" :key="group.year">
+                            <td>{{ group.year }}</td>
+                            <td>{{ group.count }}</td>
+                            <td>{{ group.totalMass }}</td>
+                        </tr>
+                        <!-- Строка с итогами -->
+                        <tr v-if="groupedData.length > 0" class="table-info fw-bold">
+                            <td>Total</td>
+                            <td>{{ totalCount }}</td>
+                            <td>{{ totalMass }}</td>
+                        </tr>
+                        <tr v-if="groupedData.length === 0">
+                            <td colspan="3" class="text-center">Нет данных для отображения</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.2.47/dist/vue.global.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script>
+        const { createApp, ref, computed, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const groupedData = ref([]);
+                const availableYears = ref([]);
+                const availableRecclasses = ref([]);
+                const isLoading = ref(false);
+                const yearError = ref('');
+
+                const filters = ref({
+                    startYear: '',
+                    endYear: '',
+                    recclass: '',
+                    nameContains: ''
+                });
+
+                const sort = ref({
+                    column: 'year',
+                    order: 'asc'
+                });
+
+                const totalCount = computed(() => {
+                    return groupedData.value.reduce((sum, group) => sum + group.count, 0);
+                });
+
+                const totalMass = computed(() => {
+                    return groupedData.value.reduce((sum, group) => sum + group.totalMass, 0);
+                });
+
+                const validateYears = () => {
+                    if (filters.value.startYear && filters.value.endYear) {
+                        if (parseInt(filters.value.startYear) > parseInt(filters.value.endYear)) {
+                            yearError.value = 'параметр "Год по" должен быть больше или равен параметру "год с"';
+                            return false;
+                        }
+                    }
+                    yearError.value = '';
+                    return true;
+                };
+
+                const fetchData = async () => {
+                    try {
+                        isLoading.value = true;
+
+                        const params = new URLSearchParams();
+
+                        params.append('sortBy', sort.value.column);
+                        params.append('sortOrder', sort.value.order);
+
+                        if (filters.value.startYear) params.append('startYear', filters.value.startYear.toString());
+                        if (filters.value.endYear) params.append('endYear', filters.value.endYear.toString());
+                        if (filters.value.recclass) params.append('recclass', filters.value.recclass);
+                        if (filters.value.nameContains) params.append('nameContains', filters.value.nameContains);
+
+                        console.log('Отправляемые параметры:', Object.fromEntries(params.entries()));
+
+                        const response = await axios.get(`/api/meteorites/grouped?${params.toString()}`);
+                        groupedData.value = response.data;
+                    } catch (error) {
+                        console.error('Ошибка при загрузке данных:', error);
+                        groupedData.value = [];
+                    } finally {
+                        isLoading.value = false;
+                    }
+                };
+
+                const applyFilters = () => {
+                    if (!validateYears()) {
+                        alert('Ошибка: параметр "Год по" должен быть больше или равен параметру "год с"');
+                        return;
+                    }
+                    fetchData();
+                };
+
+                const resetFilters = () => {
+                    filters.value = {
+                        startYear: '',
+                        endYear: '',
+                        recclass: '',
+                        nameContains: ''
+                    };
+                    fetchData();
+                };
+
+                const sortBy = (column) => {
+                    if (sort.value.column === column) {
+                        sort.value.order = sort.value.order === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        sort.value.column = column;
+                        sort.value.order = 'asc';
+                    }
+                    fetchData();
+                };
+
+                const fetchAvailableOptions = async () => {
+                    try {
+                        const [years, classes] = await Promise.all([
+                            axios.get('/api/meteorites/years'),
+                            axios.get('/api/meteorites/recclasses')
+                        ]);
+                        availableYears.value = years.data;
+                        availableRecclasses.value = classes.data;
+                    } catch (error) {
+                        console.error('Ошибка при загрузке опций:', error);
+                    }
+                };
+
+                onMounted(() => {
+                    fetchData();
+                    fetchAvailableOptions();
+                });
+
+                return {
+                    groupedData,
+                    availableYears,
+                    availableRecclasses,
+                    filters,
+                    sort,
+                    isLoading,
+                    totalCount,
+                    totalMass,
+                    applyFilters,
+                    resetFilters,
+                    sortBy,
+                    yearError,
+                    validateYears,
+                };
+            }
+        }).mount('#app');
+    </script>
+}
